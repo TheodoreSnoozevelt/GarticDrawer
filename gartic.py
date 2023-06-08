@@ -1,14 +1,25 @@
-import math
+import keyboard
 from pynput.mouse import Controller, Button
+from pynput.keyboard import Key, Listener
 import time
 from dataclasses import dataclass
 from PIL import Image, ImageShow, ImageOps
 mouse = Controller()
 
+brush_size = 1
+image_path = "sans.png"
+
+brush_scales = [ 0.25, 0.25 / 3, 0.25 / 5, 0.25 / 7, 0.25 / 9 ]
+
+
 @dataclass
 class Point:
     x: int
     y: int
+
+def on_press(key):
+    global should_exit
+    should_exit = True
 
 def click (x: int, y: int):
     mouse.position = (x, y)
@@ -36,12 +47,12 @@ def get_closest_color (color: tuple, colors: list[tuple]):
     
     return min_color
 
+def add_error (color: tuple, error: tuple, factor: float):
+    return (color[0] + int(error[0] * factor), color[1] + int(error[1] * factor), color[2] + int(error[2] * factor))
 
 topleft = Point(855, 610)
 size = Point(1538, 845)
-brush_size = 1
 
-brush_scales = [ 0.25, 0.25 / 3, 0.25 / 6, 0.25 / 12, 0.25 / 24 ]
 scale = brush_scales[brush_size]
 
 brush_points = [ Point(923, 1620), Point(1000, 1620), Point(1130, 1620), Point(1240, 1620), Point(1340, 1620) ]
@@ -97,7 +108,7 @@ for y in y_vals:
 
 color_to_point = dict(zip(colors, color_pos))
 
-img = Image.open("cat.jpeg")
+img = Image.open(image_path)
 
 img_scale = min(size.x / img.width, size.y / img.height)
 
@@ -114,20 +125,25 @@ color_pixels = {}
 for y in range(scaled.height):
     for x in range(scaled.width):
         color = scaled.getpixel((x, y))
-        palletized = get_closest_color(color, colors)
-        (r, g, b) = color[0] - palletized[0], color[1] - palletized[1], color[2] - palletized[2]
+        palettized = get_closest_color(color, colors)
+        error = (color[0] - palettized[0], color[1] - palettized[1], color[2] - palettized[2])
         
-        if palletized not in color_pixels.keys():
-            color_pixels[palletized] = []
-        color_pixels[palletized].append(Point(x, y))
+        if palettized not in color_pixels.keys():
+            color_pixels[palettized] = []
+        color_pixels[palettized].append(Point(x, y))
 
         if x < scaled.width - 1:
-            color_right = scaled.getpixel((x + 1, y))
-            scaled.putpixel((x + 1, y), (color_right[0] + int(r / 2), color_right[1] + int(g / 2), color_right[2] + int(b / 2)))
+            scaled.putpixel((x + 1, y), add_error(scaled.getpixel((x + 1, y)), error, 7 / 16))
         if y < scaled.height - 1:
-            color_bottom = scaled.getpixel((x, y + 1))
-            scaled.putpixel((x, y + 1), (color_bottom[0] + int(r / 2), color_bottom[1] + int(g / 2), color_bottom[2] + int(b / 2)))
-        scaled.putpixel((x, y), get_closest_color(color, colors))
+            scaled.putpixel((x, y + 1), add_error(scaled.getpixel((x, y + 1)), error, 5 / 16))
+            if x < scaled.width - 1:
+                scaled.putpixel((x + 1, y + 1), add_error(scaled.getpixel((x + 1, y + 1)), error, 1 / 16))
+            if x > 0:
+                scaled.putpixel((x - 1, y + 1), add_error(scaled.getpixel((x - 1, y + 1)), error, 3 / 16))
+
+        scaled.putpixel((x, y), palettized)
+
+
 
 click(50, 300)
 time.sleep(0.5)
@@ -155,6 +171,7 @@ max_count = 0
 
 for col in color_pixels.keys():
     curr_count = len(color_pixels[col])
+    print(col, len(color_pixels[col]))
     if curr_count > max_count:
         max_count = curr_count
         most_color = col
@@ -184,26 +201,32 @@ click(2500, 750)
 
 #         x += 1
 
-for color in color_pixels.keys():
-    if color == (255, 255, 255) or color == most_color:
-        continue
-    point = color_to_point[color]
-    clickp(point)
-    points = color_pixels[color]
-    i = 0
-    while i < len(points):
-        mouse.position = (points[i].x / scale + topleft.x, points[i].y / scale + topleft.y)
-        mouse.press(Button.left)
-
-        if i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
-            while i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
-                i += 1
+should_exit = False
+with Listener(on_press=on_press) as listener:
+    for color in color_pixels.keys():
+        if color == (255, 255, 255) or color == most_color:
+            continue
+        point = color_to_point[color]
+        clickp(point)
+        points = color_pixels[color]
+        i = 0
+        while i < len(points):
             mouse.position = (points[i].x / scale + topleft.x, points[i].y / scale + topleft.y)
+            mouse.press(Button.left)
 
-        mouse.release(Button.left)
-        i += 1
-        time.sleep(0.02)
+            if i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
+                while i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
+                    i += 1
+                mouse.position = (points[i].x / scale + topleft.x, points[i].y / scale + topleft.y)
 
-# for point in color_pos:
-#     pyautogui.click(point.x, point.y)
-#     time.sleep(0.5)
+            mouse.release(Button.left)
+            i += 1
+            time.sleep(0.03)
+            if should_exit:
+                break
+        if should_exit:
+                break
+    listener.stop()
+    listener.join()
+
+ImageShow.show(scaled)
