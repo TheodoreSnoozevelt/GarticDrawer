@@ -1,17 +1,36 @@
 import math
+import random
+import argparse
 from pynput.mouse import Controller, Button
 from pynput.keyboard import Key, Listener
 import time
+import os
 from dataclasses import dataclass
 from PIL import Image, ImageShow, ImageOps, ImageFilter
+import time
+parser = argparse.ArgumentParser()
+parser.add_argument('--path', type=str, help='Specifies the image path')
+parser.add_argument('--detail', type=int, help='Specifies amount of detail in the drawing [1,5]')
+
+args = parser.parse_args()
+
+brush_scales = [ 0.25, 0.25 / 3, 0.25 / 5, 0.25 / 7, 0.25 / 9 ]
+start_time = time.time()
 mouse = Controller()
 
 should_draw = True
-brush_size = 0
-image_path = "sans2.jpeg"
+image_path = "mario.png"
+if args.path:
+    image_path = args.path
+random_range = 20
 
-brush_scales = [ 0.25, 0.25 / 3, 0.25 / 5, 0.25 / 7, 0.25 / 9 ]
+detail = 4
+if args.detail:
+    detail = args.detail
+levels = range(5-detail, len(brush_scales))[::-1]
 
+def get_threshold(brush_scales, level):
+    return (1 - brush_scales[level] / brush_scales[0]) ** 15 * 255
 
 @dataclass
 class Point:
@@ -68,7 +87,7 @@ def apply_kernel (img: Image, size: tuple, kernel: list[float]) -> Image:
     
     return new_img
 
-def dither(img: Image) -> dict[tuple, list[Point]]:
+def dither(img: Image, grad: Image) -> dict[tuple, list[Point]]:
     color_pixels = {}
 
     for y in range(img.height):
@@ -77,9 +96,17 @@ def dither(img: Image) -> dict[tuple, list[Point]]:
             palettized = get_closest_color(color, colors)
             error = (color[0] - palettized[0], color[1] - palettized[1], color[2] - palettized[2])
             
-            if palettized not in color_pixels.keys():
-                color_pixels[palettized] = []
-            color_pixels[palettized].append(Point(x, y))
+            if grad == None:
+                if palettized not in color_pixels.keys():
+                    color_pixels[palettized] = []
+                color_pixels[palettized].append(Point(x, y))
+            else:
+                (val, _, _) = grad.getpixel((x, y))
+                if val > get_threshold(brush_scales, level):
+                    if palettized not in color_pixels.keys():
+                        color_pixels[palettized] = []
+                    color_pixels[palettized].append(Point(x, y))
+            
 
             if x < img.width - 1:
                 img.putpixel((x + 1, y), add_error(img.getpixel((x + 1, y)), error, 7 / 16))
@@ -94,10 +121,52 @@ def dither(img: Image) -> dict[tuple, list[Point]]:
 
     return color_pixels
 
+def gradient(img: Image) -> Image:
+    gradient_img = img.copy()
+
+    x_grad = apply_kernel(gradient_img, (3, 3), [
+        1, 0, -1, 
+        2, 0, -2, 
+        1, 0, -1])
+
+    y_grad = apply_kernel(gradient_img, (3, 3), [
+        1,  2,  1, 
+        0,  0,  0, 
+        -1, -2, -1])
+
+    for x in range(gradient_img.width):
+        for y in range(gradient_img.height):
+            (xr, xg, xb) = x_grad.getpixel((x,y))
+            (yr, yg, yb) = y_grad.getpixel((x,y))
+
+            dr = math.sqrt(xr * xr + yr * yr)
+            dg = math.sqrt(xg * xg + yg * yg)
+            db = math.sqrt(xb * xb + yb * yb)
+
+            length = int(math.sqrt(dr * dr + dg * dg + db * db))
+
+            gradient_img.putpixel((x,y), (length, length, length))
+
+    return gradient_img
+
+def erase() -> None:
+    # Select eraser
+    click(2626, 750)
+    clickp(brush_points[-1])
+
+    for y in range(0, size.y, 50):
+        mouse.position = (topleft.x, y + topleft.y)
+        mouse.press(Button.left)
+        mouse.position = (topleft.x + size.x, y + topleft.y)
+        mouse.release(Button.left)
+
+    mouse.position = (topleft.x, topleft.y + size.y)
+    mouse.press(Button.left)
+    mouse.position = (topleft.x + size.x, topleft.y + size.y)
+    mouse.release(Button.left)
+
 topleft = Point(855, 610)
 size = Point(1538, 845)
-
-scale = brush_scales[brush_size]
 
 brush_points = [ Point(923, 1620), Point(1000, 1620), Point(1130, 1620), Point(1240, 1620), Point(1340, 1620) ]
 # Upper left corner: 851, 610
@@ -109,30 +178,6 @@ brush_points = [ Point(923, 1620), Point(1000, 1620), Point(1130, 1620), Point(1
 # Eraser: 2626, 750
 # Pen: 2500, 750
 # Small brush size: 923, 620
-
-# 000000: 600, 750
-# 666666: 675, 750
-# 0050cd: 750, 750
-
-# ffffff: 600, 825
-# aaaaaa: 675, 825
-# 26c9ff: 750, 825
-
-# 017420: 600, 900
-# 990000: 675, 900
-# 964112: 750, 900
-
-# 11b03c: 600, 990
-# ff0013: 675, 990
-# ff7829: 750, 990
-
-# b0701c: 600, 1075
-# 99004e: 675, 1075
-# cb5a57: 750, 1075
-
-# ffc126: 600, 1160
-# ff008f: 675, 1160
-# feafa8: 750, 1160
 
 colorcodes = [ "000000", "666666", "0050cd", 
                "ffffff", "aaaaaa", "26c9ff", 
@@ -153,68 +198,43 @@ for y in y_vals:
 color_to_point = dict(zip(colors, color_pos))
 
 img = Image.open(image_path)
-
+img = img.convert("RGB")
 img_scale = min(size.x / img.width, size.y / img.height)
+img = ImageOps.scale(img, img_scale)
 
-img_scale *= scale
+grad_path = os.path.splitext(image_path)[0] + "_grad.png"
+if os.path.exists(grad_path):
+    grad = Image.open(grad_path)
+else:
+    print("Calculating gradient...")
+    grad = gradient(img)
+    grad.save(grad_path)
+    print("Done")
 
-scaled = ImageOps.scale(img, img_scale)
-img.close()
-
-filtered = scaled.copy()
-
-# for x in range(filtered.width):
-#     for y in range(filtered.height):
-#         red,green,blue = scaled.getpixel((x,y))
-#         value = red * 299/1000 + green * 587/1000 + blue * 114/1000
-#         value = int(value)
-#         filtered.putpixel((x,y),(value, value, value))
-
-x_grad = apply_kernel(filtered, (3, 3), [
-    1, 0, -1, 
-    2, 0, -2, 
-    1, 0, -1])
-
-y_grad = apply_kernel(filtered, (3, 3), [
-     1,  2,  1, 
-     0,  0,  0, 
-    -1, -2, -1])
-
-for x in range(filtered.width):
-    for y in range(filtered.height):
-        (xr, xg, xb) = x_grad.getpixel((x,y))
-        (yr, yg, yb) = y_grad.getpixel((x,y))
-
-        dr = math.sqrt(xr * xr + yr * yr)
-        dg = math.sqrt(xg * xg + yg * yg)
-        db = math.sqrt(xb * xb + yb * yb)
-
-        length = int(math.sqrt(dr * dr + dg * dg + db * db))
-
-        filtered.putpixel((x,y), (length, length, length))
+base_scaled = ImageOps.scale(img, brush_scales[0])
 
 # Dither image
+images: list[Image.Image] = []
+color_pixels: list[dict[tuple, list[Point]]] = []
+max_level = levels[-1]
 
-color_pixels = dither(scaled)
+for i, level in enumerate(levels):
+    curr_img = ImageOps.scale(img, brush_scales[level])
+    if i == 0:
+        curr_grad = None
+    else:
+        curr_grad = ImageOps.scale(grad, brush_scales[level])
+    color_pixels.append(dither(curr_img, curr_grad))
+
+    if curr_grad != None:
+        curr_grad.close()
+    curr_img.close()
 
 if should_draw:
     click(50, 300)
     time.sleep(0.5)
 
-    # Select eraser
-    click(2626, 750)
-    clickp(brush_points[-1])
-
-    for y in range(0, size.y, 50):
-        mouse.position = (topleft.x, y + topleft.y)
-        mouse.press(Button.left)
-        mouse.position = (topleft.x + size.x, y + topleft.y)
-        mouse.release(Button.left)
-
-    mouse.position = (topleft.x, topleft.y + size.y)
-    mouse.press(Button.left)
-    mouse.position = (topleft.x + size.x, topleft.y + size.y)
-    mouse.release(Button.left)
+    erase()
 
     # Select bucket fill
     click(2626, 1150)
@@ -222,9 +242,12 @@ if should_draw:
     most_color = 0
     max_count = 0
 
-    for col in color_pixels.keys():
-        curr_count = len(color_pixels[col])
-        print(col, len(color_pixels[col]))
+    for col in colors:
+        curr_count = 0
+        for i in range(len(color_pixels)):
+            if col in color_pixels[i]:
+                curr_count += len(color_pixels[i][col]) * brush_scales[levels[i]]
+
         if curr_count > max_count:
             max_count = curr_count
             most_color = col
@@ -232,36 +255,50 @@ if should_draw:
     clickp(color_to_point[most_color])
     click(1300, 1000)
 
-    # Select brush size
-    clickp(brush_points[brush_size])
-    click(2500, 750)
-
-    should_exit = False
     with Listener(on_press=on_press) as listener:
-        for color in color_pixels.keys():
-            if color == (255, 255, 255) or color == most_color:
-                continue
-            point = color_to_point[color]
-            clickp(point)
-            points = color_pixels[color]
-            i = 0
-            while i < len(points):
-                mouse.position = (points[i].x / scale + topleft.x, points[i].y / scale + topleft.y)
-                mouse.press(Button.left)
+        should_exit = False
 
-                if i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
-                    while i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
-                        i += 1
-                    mouse.position = (points[i].x / scale + topleft.x, points[i].y / scale + topleft.y)
-
-                mouse.release(Button.left)
-                i += 1
-                time.sleep(0.03)
-                if should_exit:
-                    break
+        for index, level in enumerate(levels):
             if should_exit:
-                    break
-        listener.stop()
-        listener.join()
+                break
+            
+            scale = brush_scales[level]
+            # Select brush size
+            clickp(brush_points[level])
+            click(2500, 750)
+
+            for color in color_pixels[index].keys():
+                if should_exit:
+                        break
+                
+                if index == 0 and color == most_color:
+                    continue
+                point = color_to_point[color]
+                clickp(point)
+                points = color_pixels[index][color]
+                i = 0
+                while i < len(points):
+                    if should_exit:
+                        break
+
+                    rx = (random.random() * random_range - random_range / 2) * scale
+                    ry = (random.random() * random_range - random_range / 2) * scale
+                    mouse.position = (points[i].x / scale + topleft.x + rx, points[i].y / scale + topleft.y + ry)
+                    mouse.press(Button.left)
+
+                    if i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
+                        while i + 1 < len(points) and points[i].x == points[i + 1].x - 1 and points[i].y == points[i + 1].y:
+                            i += 1
+                        rx = (random.random() * random_range - random_range / 2) * scale
+                        ry = (random.random() * random_range - random_range / 2) * scale
+                        mouse.position = (points[i].x / scale + topleft.x + rx, points[i].y / scale + topleft.y + ry)
+
+                    mouse.release(Button.left)
+                    i += 1
+                    time.sleep(0.03)
+    listener.stop()
+    listener.join()
+
+print("--- %s seconds ---" % (time.time() - start_time))
 
 # ImageShow.show(scaled)
