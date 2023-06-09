@@ -9,32 +9,26 @@ from dataclasses import dataclass
 from PIL import Image, ImageShow, ImageOps, ImageFilter
 import time
 parser = argparse.ArgumentParser()
-parser.add_argument('--path', type=str, help='Specifies the image path', default="mario.png")
-parser.add_argument('--detail', type=int, help='Specifies amount of detail in the drawing [1,5]', default=4)
+parser.add_argument('--path', type=str, help='The image path', default="papy2.jpeg")
 parser.add_argument('--t_pow', type=float, help='Raise the threshold value to a power', default=10)
 parser.add_argument('--t_mult', type=float, help='Multiply the threshold value by a number', default=255)
-parser.add_argument('--levels', type=str, help='Specifies amount of detail in the drawing [1,5]', default="")
+parser.add_argument('--scale', type=int, help='The starting scale of the pixels', default=6)
+parser.add_argument('--depth', type=int, help='The number of iterations to draw', default=4)
 
 args = parser.parse_args()
 
-brush_scales = [ 0.25 / 3, 0.25 / 5, 0.25 / 7, 0.25 / 9, 0.25 / 11, 0.25 / 13 ]
+if args.scale <= args.depth:
+    args.depth = args.scale
 
-if args.levels != "":
-    try:
-        brush_scales = [ float(f) for f in args.levels.split(",") ]
-    except:
-        print("couldn't parse value", args.levels)
+brush_scales = [ 2**(-args.scale+n) for n in range(args.depth) ]
 
 start_time = time.time()
 mouse = Controller()
 
 should_draw = True
 
-levels = range(len(brush_scales))[::-1]
-print(levels)
-
 def get_threshold(brush_scales, level):
-    return (1 - brush_scales[level] / brush_scales[0]) ** args.t_pow * args.t_mult
+    return (1 - brush_scales[level] / brush_scales[-1]) ** args.t_pow * args.t_mult
 
 @dataclass
 class Point:
@@ -91,7 +85,7 @@ def apply_kernel (img: Image, size: tuple, kernel: list[float]) -> Image:
     
     return new_img
 
-def dither(img: Image, grad: Image) -> dict[tuple, list[Point]]:
+def dither(img: Image, grad: Image, level: int) -> dict[tuple, list[Point]]:
     color_pixels = {}
 
     for y in range(img.height):
@@ -209,7 +203,6 @@ img = Image.open(args.path)
 img = img.convert("RGB")
 img_scale = min(size.x / img.width, size.y / img.height)
 img = ImageOps.scale(img, img_scale)
-print("Loaded image")
 
 grad_path = os.path.splitext(args.path)[0] + "_grad.png"
 if os.path.exists(grad_path):
@@ -225,19 +218,47 @@ base_scaled = ImageOps.scale(img, brush_scales[0])
 # Dither image
 images: list[Image.Image] = []
 color_pixels: list[dict[tuple, list[Point]]] = []
-max_level = levels[-1]
 
-for i, level in enumerate(levels):
-    curr_img = ImageOps.scale(img, brush_scales[level])
+for i in range(len(brush_scales)):
+    curr_img = ImageOps.scale(img, brush_scales[i])
     if i == 0:
         curr_grad = None
     else:
-        curr_grad = ImageOps.scale(grad, brush_scales[level])
-    color_pixels.append(dither(curr_img, curr_grad))
+        curr_grad = ImageOps.scale(grad, brush_scales[i])
+    color_pixels.append(dither(curr_img, curr_grad, i))
 
     if curr_grad != None:
         curr_grad.close()
     curr_img.close()
+
+cull_count = 0
+for col in colors:
+    for proc_i in range(1, len(color_pixels)):
+        if col not in color_pixels[proc_i]:
+            continue
+            
+        point_i = 0
+        while point_i < len(color_pixels[proc_i][col]):
+            point = color_pixels[proc_i][col][point_i]
+
+            for comp_i in range(0, proc_i):
+                if col not in color_pixels[comp_i]:
+                    continue
+
+                # Calculate the scaled Point in the lower resolution image
+                scl = brush_scales[comp_i] / brush_scales[proc_i]
+                assert(scl < 1)
+                scaled_point = Point(math.floor(point.x * scl), math.floor(point.y * scl))
+                # Check if it's present in the comp_pixels using bs function
+                if scaled_point in color_pixels[comp_i][col]:
+                    color_pixels[proc_i][col].remove(point)
+                    cull_count += 1
+                    point_i -= 1
+                    break
+
+            point_i += 1
+
+print("Removed", cull_count, "points")
 
 if should_draw:
     click(50, 300)
@@ -248,6 +269,7 @@ if should_draw:
     # Select bucket fill
     click(2626, 1150)
 
+
     most_color = 0
     max_count = 0
 
@@ -255,7 +277,7 @@ if should_draw:
         curr_count = 0
         for i in range(len(color_pixels)):
             if col in color_pixels[i]:
-                curr_count += len(color_pixels[i][col]) * brush_scales[levels[i]]
+                curr_count += len(color_pixels[i][col]) * brush_scales[i]
 
         if curr_count > max_count:
             max_count = curr_count
@@ -267,24 +289,21 @@ if should_draw:
     with Listener(on_press=on_press) as listener:
         should_exit = False
 
-        for index, level in enumerate(levels):
+        for index in range(len(brush_scales)):
             if should_exit:
                 break
-            
-            scale = brush_scales[level]
+
+            scale = brush_scales[index]
             brush_width = 1 / scale
-            msg = f"Level {index+1}/{len(levels)}"
-            ps = subprocess.Popen(('echo', msg), stdout=subprocess.PIPE)
-            subprocess.run(["xclip", "-i", "-selection", "clipboard"], stdin=ps.stdout)
-            print(msg)
-            # Select brush size
-            # clickp(brush_points[level])
-            # click(2500, 750)
 
             # Square fill
             click(2500, 1000)
+            total_colors = len(color_pixels[index].keys())
 
-            for color in color_pixels[index].keys():
+            for color_i, color in enumerate(color_pixels[index].keys()):
+                msg = f"Level {index+1}/{len(brush_scales)} | Color {color_i + 1}/{total_colors}"
+                ps = subprocess.Popen(('echo', msg), stdout=subprocess.PIPE)
+                subprocess.run(["xclip", "-i", "-selection", "clipboard"], stdin=ps.stdout)
                 if should_exit:
                         break
                 

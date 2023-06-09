@@ -10,7 +10,6 @@ from PIL import Image, ImageShow, ImageOps, ImageFilter
 import time
 parser = argparse.ArgumentParser()
 parser.add_argument('--path', type=str, help='Specifies the image path', default="mario.png")
-parser.add_argument('--detail', type=int, help='Specifies amount of detail in the drawing [1,5]', default=4)
 parser.add_argument('--t_pow', type=float, help='Raise the threshold value to a power', default=10)
 parser.add_argument('--t_mult', type=float, help='Multiply the threshold value by a number', default=255)
 parser.add_argument('--levels', type=str, help='Specifies amount of detail in the drawing [1,5]', default="")
