@@ -88,15 +88,15 @@ def apply_kernel (img: Image, size: tuple, kernel: list[float]) -> Image:
 def dither(img: Image, grad: Image, level: int) -> dict[tuple, list[Point]]:
     color_pixels = {}
 
+    for color in colors:
+        color_pixels[color] = []
+
     for y in range(img.height):
         for x in range(img.width):
             color = img.getpixel((x, y))
             palettized = get_closest_color(color, colors)
             error = (color[0] - palettized[0], color[1] - palettized[1], color[2] - palettized[2])
             
-            if palettized not in color_pixels.keys():
-                color_pixels[palettized] = []
-
             if grad == None:
                 color_pixels[palettized].append(Point(x, y))
             else:
@@ -120,6 +120,10 @@ def dither(img: Image, grad: Image, level: int) -> dict[tuple, list[Point]]:
 
             img.putpixel((x, y), palettized)
 
+    # for color in colors:
+    #     if len(color_pixels[color]) == 0:
+    #         color_pixels.remove(color)
+    
     return color_pixels
 
 def gradient(img: Image) -> Image:
@@ -273,11 +277,8 @@ if should_draw:
     most_color = 0
     max_count = 0
 
-    for col in colors:
-        curr_count = 0
-        for i in range(len(color_pixels)):
-            if col in color_pixels[i]:
-                curr_count += len(color_pixels[i][col]) * brush_scales[i]
+    for col in color_pixels[0]:
+        curr_count = len(color_pixels[0][col])
 
         if curr_count > max_count:
             max_count = curr_count
