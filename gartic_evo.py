@@ -18,14 +18,17 @@ from queue import Queue
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--path', type=str, help='The image path', default="img/papy2.jpeg")
-parser.add_argument('--count', type=int, help='Number of objects to draw', default=100)
-parser.add_argument('--batch', type=int, help='Number of objects to use for each batch', default=5000)
-parser.add_argument('--thread', type=int, help="Number of threads to use to process batches", default=4)
+parser.add_argument('--count', type=int, help='Number of objects to draw', default=250)
+parser.add_argument('--batch', type=int, help='Number of objects to use for each batch', default=500)
+parser.add_argument('--scale', type=float, help='Scale multiplier for the dimensions of the image', default=0.25)
+parser.add_argument('--blur', type=int, help='Amount to blur image when comparing', default=0)
 parser.add_argument('--pickle', type=str, help="Path to pickle file of preprocessed image")
-
-proc_scale = 0.15
+parser.add_argument('--draw', action='store_true', help="If it should draw the image to Gartic Phone after processing", default=False)
+parser.add_argument('--dither', action='store_true', help="If the input image should be dithered first", default=False)
 
 args = parser.parse_args()
+
+proc_scale = args.scale
 
 start_time = time.time()
 mouse = Controller()
@@ -43,7 +46,8 @@ class Rect:
 
 def on_press(key):
     global should_exit
-    should_exit = True
+    if args.pickle or args.draw:
+        should_exit = True
 
 def click (x: int, y: int):
     mouse.position = (x, y)
@@ -53,9 +57,11 @@ def clickp (pos: Point):
     click(pos.x, pos.y)
 
 def drawrect (img: cv2.Mat, rect: Rect, thickness: int = -1) -> None:
-    cv2.rectangle(img, (rect.topleft.x, rect.topleft.y, rect.size.x, rect.size.y), rect.color, thickness)
+    cv2.rectangle(img, (rect.topleft.x, rect.topleft.y, rect.size.x, rect.size.y), (rect.color[2], rect.color[1], rect.color[0]), thickness)
 
 def imgdiff (a: cv2.Mat, b: cv2.Mat) -> float:
+    if args.blur:
+        b = cv2.blur(b, (args.blur, args.blur))
     diff = cv2.absdiff(a, b)
     return sum(cv2.mean(diff))
 
@@ -67,14 +73,14 @@ def rgb_dist (a: tuple[int, int, int], b:tuple[int, int, int]) -> int:
     return (a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1]) + (a[2] - b[2]) * (a[2] - b[2])
 
 def get_closest_color (color: tuple[int, int, int], colors: list[tuple[int, int, int]]) -> tuple[int, int, int]:
-    min_color = 0
-    min_dist = 9999
+    min_color = colors[0]
+    min_dist = rgb_dist(color, colors[0])
 
-    for col in colors:
-        curr_dist = rgb_dist(color, col)
+    for i in range(1, len(colors)):
+        curr_dist = rgb_dist(color, colors[i])
         if curr_dist < min_dist:
             min_dist = curr_dist
-            min_color = col
+            min_color = colors[i]
     
     return min_color
 
@@ -126,6 +132,63 @@ for y in y_vals:
         color_pos.append(Point(x, y))
 
 color_to_point = dict(zip(colors, color_pos))
+
+def clamp (n: int, mi: int = 0, ma: int = 255) -> int:
+    return min(max(n, mi), ma)
+
+def add_error (color: tuple, error: tuple, factor: float):
+    return (clamp(color[0] + int(error[0] * factor)), clamp(color[1] + int(error[1] * factor)), clamp(color[2] + int(error[2] * factor)))
+
+def dither(img: cv2.Mat, colors: list[tuple[int, int, int]]):
+    h, w = img.shape[:2]
+    bgr_colors = [(x[2], x[1], x[0]) for x in colors]
+
+    for y in range(h):
+        for x in range(w):
+            color = img[y, x]
+            palettized = get_closest_color(color, bgr_colors)
+            error = (color[0] - palettized[0], color[1] - palettized[1], color[2] - palettized[2])
+
+            if x < w - 1:
+                img[y, x + 1] = add_error(img[y, x + 1], error, 7 / 16)
+            if y < h - 1:
+                img[y + 1, x] = add_error(img[y + 1, x], error, 5 / 16)
+                if x < w - 1:
+                    img[y + 1, x + 1] = add_error(img[y + 1, x + 1], error, 1 / 16)
+                if x > 0:
+                    img[y + 1, x - 1] = add_error(img[y + 1, x - 1], error, 3 / 16)
+
+            img[y, x] = palettized
+
+def draw_gartic (final_rects: list[Rect]):
+    with Listener(on_press=on_press) as listener:
+        should_exit = False
+        click(50, 300)
+        time.sleep(0.5)
+
+        # erase()
+
+        # Square fill
+        click(2500, 1000)
+
+        for rect in final_rects:
+            if should_exit:
+                break
+
+            clickp(color_to_point[rect.color])
+
+            mouse.position = ((rect.topleft.x + topleft.x, rect.topleft.y + topleft.y))
+            mouse.press(Button.left)
+            time.sleep(0.08)
+            mouse.position = ((rect.topleft.x  + topleft.x + rect.size.x, rect.topleft.y  + topleft.y + rect.size.y))
+            mouse.release(Button.left)
+
+            time.sleep(0.05)
+
+        listener.stop()
+        listener.join()
+
+
 should_exit = False
 
 if args.pickle:
@@ -136,29 +199,7 @@ if args.pickle:
     with open(args.pickle, "rb") as file:
         final_rects = pickle.load(file)
     
-    click(50, 300)
-    time.sleep(0.5)
-
-    erase()
-
-    with Listener(on_press=on_press) as listener:
-        # Square fill
-        click(2500, 1000)
-
-        for rect in final_rects:
-            if should_exit:
-                break
-
-            clickp(color_to_point[rect.color])
-
-            mouse.position = ((rect.topleft.x, rect.topleft.y))
-            mouse.press(Button.left)
-            mouse.position = ((rect.topleft.x + rect.size.x, rect.topleft.y + rect.size.y))
-            mouse.release(Button.left)
-
-            time.sleep(0.03)
-    listener.stop()
-    listener.join()
+    draw_gartic(final_rects)
 
 else:
     img = cv2.imread(args.path)
@@ -167,171 +208,117 @@ else:
     img = cv2.resize(img, (math.floor(img_width * img_scale), math.floor(img_height * img_scale)))
     img_height, img_width = img.shape[:2]
 
-    avg = cv2.mean(img)
-    most_color = get_closest_color((avg[0], avg[1], avg[2]), colors)
+    if args.dither:
+        dither(img, colors)
+    if args.blur:
+        img = cv2.blur(img, (args.blur, args.blur))
+    
+    cv2.imwrite("scaled.png", img)
+
+    # avg = cv2.mean(img)
+    # most_color = get_closest_color((avg[0], avg[1], avg[2]), colors)
 
     best_img = np.zeros((img_height,img_width,3), np.uint8)
-    best_img[::] = most_color
-    best_rects = [ Rect(Point(0, 0), Point(img_width, img_height), most_color) ]
+    best_img[::] = (255, 255, 255)
+    # drawrect(best_img, Rect(Point(0, 0), Point(img_width, img_height), most_color))
+    best_rects = [ ]
+    # best_rects = [ Rect(Point(0, 0), Point(img_width, img_height), most_color) ]
+    debug_img = best_img.copy()
 
-    # https://stackoverflow.com/a/25904681
-    class BatchThread(threading.Thread):
-        def __init__(self, queue: Queue, lock: threading.Lock, img: cv2.Mat, batch_size: int, colors: list[tuple[int, int, int]], return_vals: list[tuple[cv2.Mat, Rect, float]], index: int, args=(), kwargs=None):
-            threading.Thread.__init__(self, args=(), kwargs=None)
-            self.queue: Queue[cv2.Mat] = queue
-            self.lock: threading.Lock = lock
-            self.img: cv2.Mat = img
-            self.batch_size: int = batch_size
-            self.colors: list[tuple[int, int, int]] = colors
-            self.return_vals: list[tuple[cv2.Mat, Rect, float]] = return_vals
-            self.index: int = index
-            self.daemon = True
-            # self.receive_messages = args[0]
-
-        def run(self):
-            while True:
-                val: cv2.Mat = self.queue.get()
-                if val is None:   # If you send `None`, the thread will exit.
-                    return
-                self.process_batch(val)
-
-        def process_batch(self, evo_img: cv2.Mat):
-            with self.lock:
-                best_rect: Rect = None
-                best_batch: cv2.Mat = evo_img.copy()
-                best_diff = imgdiff(self.img, evo_img)
-                h, w = self.img.shape[:2]
-                
-                for _ in range(self.batch_size):
-                    test_batch: cv2.Mat = evo_img.copy()
-                    test_topleft = Point(random.randint(0,w - 2), random.randint(0,h - 2))
-                    test_size = Point(random.randint(1,w - test_topleft.x - 1), random.randint(1,h - test_topleft.y - 1))
-                    avg_col = cv2.mean(self.img[test_topleft.x:test_size.x, test_topleft.y:test_size.y])
-                    # test_color = (avg_col[0], avg_col[1], avg_col[2])
-                    test_color = get_closest_color((avg_col[0], avg_col[1], avg_col[2]), self.colors)
-                    test_rect = Rect(test_topleft, test_size, test_color)
-                    drawrect(test_batch, test_rect)
-
-                    test_diff = imgdiff(self.img, test_batch)
-                    if test_diff < best_diff:
-                        best_batch = test_batch
-                        best_diff = test_diff
-                        best_rect = test_rect
-                
-                self.return_vals[self.index] = (best_batch, best_rect, best_diff)
-                print(f"Thread {self.index} done")
-
-    def process_batch_threaded (evo_img: cv2.Mat) -> tuple[cv2.Mat, Rect]:
-        for t_index in range(args.thread):
-            thread_queues[t_index].put(evo_img)
-
-        best_batch, best_rect, best_diff = (None, None, 99999999999999999999999999)
-
-        processed_all = True
-
-        while processed_all:
-            for i in range(args.thread):
-                if return_vals[i] == None or return_vals[i] == -1:
-                    continue
-
-                temp_batch, temp_rect, temp_diff = return_vals[i]
-                
-                return_vals[i] = -1
-                processed_all = False
-                if temp_diff < best_diff:
-                    best_batch = temp_batch
-                    best_rect = temp_rect
-                    best_diff = temp_diff
-        
-        for i in range(args.thread):
-            with return_vals_locks[i]:
-                return_vals[i] = None
-        
-        return (best_batch, best_rect)
-    
-    def process_batch_unthreaded (img: cv2.Mat, evo_img: cv2.Mat, colors: list[tuple[int, int, int]]) -> tuple[cv2.Mat, Rect]:
+    def process_batch_unthreaded (original_img: cv2.Mat, evo_img: cv2.Mat, colors: list[tuple[int, int, int]]) -> tuple[cv2.Mat, Rect]:
         best_rect: Rect = None
         best_batch: cv2.Mat = evo_img.copy()
-        best_diff = imgdiff(img, evo_img)
-        h, w = img.shape[:2]
+        # best_batch: cv2.Mat = None
+        best_diff = imgdiff(original_img, evo_img)
+        # best_diff = 99999999999999999
+        h, w = original_img.shape[:2]
         
-        for i in range(args.batch):
+        for _ in range(args.batch):
             test_batch: cv2.Mat = evo_img.copy()
             test_topleft = Point(random.randint(0,w - 2), random.randint(0,h - 2))
-            test_size = Point(random.randint(1,w - test_topleft.x - 1), random.randint(1,h - test_topleft.y - 1))
-            avg_col = cv2.mean(img[test_topleft.x:test_size.x, test_topleft.y:test_size.y])
-            # test_color = (avg_col[0], avg_col[1], avg_col[2])
-            test_color = get_closest_color((avg_col[0], avg_col[1], avg_col[2]), colors)
+            test_size = Point(random.randint(1, w - test_topleft.x), random.randint(1, h - test_topleft.y))
+            # test_size = Point(1, 1)
+            avg_col = cv2.mean(img[test_topleft.y:(test_topleft.y+test_size.y), test_topleft.x:(test_topleft.x+test_size.x)])
+            # test_color = (avg_col[2], avg_col[1], avg_col[0])
+            test_color = get_closest_color((avg_col[2], avg_col[1], avg_col[0]), colors)
+
             test_rect = Rect(test_topleft, test_size, test_color)
             drawrect(test_batch, test_rect)
 
-            test_diff = imgdiff(img, test_batch)
+            test_diff = imgdiff(original_img, test_batch)
             if test_diff < best_diff:
                 best_batch = test_batch
                 best_diff = test_diff
                 best_rect = test_rect
+
+        # if best_rect == None and random.random() < 0.25:
+        #     return (test_batch, test_rect)
         
         return (best_batch, best_rect)
 
-    threads = [None] * args.thread
-    return_vals = [None] * args.thread
-    return_vals_locks = [None] * args.thread
-    thread_queues = [None] * args.thread
-
-    for thread_index in range(args.thread):
-            return_vals_locks[thread_index] = threading.Lock()
-            thread_queues[thread_index] = Queue()
-            thread = BatchThread(thread_queues[thread_index], return_vals_locks[thread_index], img, math.floor(args.batch / args.thread), colors, return_vals, thread_index)
-            threads[thread_index] = thread
-            thread.start()
-
     avg_step_time = 0
-    last_step = time.time()
+    click(50, 300)
+    time.sleep(0.5)
 
-    for j in range(args.count):
-        if should_exit:
-            break
+    # erase()
 
-        if j < 200:
-            avg_step_time *= j
-            avg_step_time += time.time() - last_step
-            avg_step_time /= j + 1
-            last_step = time.time()
+    # Square fill
+    click(2500, 1000)
+    with Listener(on_press=on_press) as listener:
+        for j in range(args.count):
+            if should_exit:
+                break
 
-        time_left = avg_step_time * (args.count - j)
-        print(f"\r{j}/{args.count} estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}             ", end="")
+            avg_step_time = (time.time() - start_time) / (j + 1)
+            
+            if j == (args.count / 10):
+                print(f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.count))}                               ")
 
-        if args.thread > 1:
-            best_batch, best_rect = process_batch_threaded(best_img)
-        else:
+            time_left = avg_step_time * (args.count - j)
+            print(f"\r{j + 1}/{args.count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}             ", end="")
+
             best_batch, best_rect = process_batch_unthreaded(img, best_img, colors)
-        if best_rect != None:
-            best_img = best_batch.copy()
-            scl_tl = Point(best_rect.topleft.x / proc_scale, best_rect.topleft.y / proc_scale)
-            scl_s = Point(best_rect.size.x / proc_scale, best_rect.size.y / proc_scale)
-            scaled_rect = Rect(scl_tl, scl_s, best_rect.color)
-            best_rects.append(scaled_rect)
-        
-        if select.select([sys.stdin, ], [], [], 0.0)[0]:
-            should_exit = True
 
-    print("Closing threads...")
-    print()
-    for i in range(args.thread):
-        thread_queues[i].put(None)
-        print(f"\r{i + 1}/{args.thread} ", end="")
-        threads[i].join()
-    print()
-    print("Done")
+            if best_rect != None:
+                best_img = best_batch.copy()
+                scl_tl = Point(best_rect.topleft.x / proc_scale, best_rect.topleft.y / proc_scale)
+                scl_s = Point(best_rect.size.x / proc_scale, best_rect.size.y / proc_scale)
+                scaled_rect = Rect(scl_tl, scl_s, best_rect.color)
+                # drawrect(debug_img, best_rect, 1)
+                best_rects.append(scaled_rect)
+                clickp(color_to_point[scaled_rect.color])
 
+                if args.draw:
+                    mouse.position = ((scaled_rect.topleft.x + topleft.x, scaled_rect.topleft.y + topleft.y))
+                    mouse.press(Button.left)
+                    time.sleep(0.08)
+                    mouse.position = ((scaled_rect.topleft.x  + topleft.x + scaled_rect.size.x, scaled_rect.topleft.y  + topleft.y + scaled_rect.size.y))
+                    mouse.release(Button.left)
+
+                    time.sleep(0.02)
+            
+            if (j + 1) % 100 == 0:
+                cv2.imwrite("evolution.png", best_img)
+                cv2.imwrite("debug.png", debug_img)
+            
+            if select.select([sys.stdin, ], [], [], 0.0)[0]:
+                should_exit = True
+                
+        listener.stop()
+        listener.join()
+    
     print()
 
-    cv2.imwrite("scaled.png", img)
     cv2.imwrite("evolution.png", best_img)
+    # cv2.imwrite("debug.png", debug_img)
 
     with open("rects.pickle", "wb") as file:
         pickle.dump(best_rects, file)
+    
+    # if args.draw:
+    #     print(f"--- calculation time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---")
+    #     draw_time = time.time()
+    #     draw_gartic(best_rects)
+    #     print(f"--- draw time - {datetime.timedelta(seconds=math.floor(time.time() - draw_time))} ---")
 
 print(f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---")
-
-# ImageShow.show(scaled)
