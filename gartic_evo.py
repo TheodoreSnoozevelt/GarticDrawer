@@ -21,12 +21,18 @@ parser.add_argument('--path', type=str, help='The image path', default="img/papy
 parser.add_argument('--count', type=int, help='Number of objects to draw', default=250)
 parser.add_argument('--batch', type=int, help='Number of objects to use for each batch', default=500)
 parser.add_argument('--scale', type=float, help='Scale multiplier for the dimensions of the image', default=0.25)
+parser.add_argument('--screenwidth', type=int, help='Horizontal resolution of your screen', default=2880)
+parser.add_argument('--topstart', type=int, help='Horizontal resolution of your screen', default=245)
 parser.add_argument('--blur', type=int, help='Amount to blur image when comparing', default=0)
 parser.add_argument('--pickle', type=str, help="Path to pickle file of preprocessed image")
 parser.add_argument('--draw', action='store_true', help="If it should draw the image to Gartic Phone after processing", default=False)
 parser.add_argument('--dither', action='store_true', help="If the input image should be dithered first", default=False)
 
 args = parser.parse_args()
+
+og_screen_offset_y = 245
+screen_offset_y = args.topstart
+screen_scale = args.screenwidth / 2880
 
 proc_scale = args.scale
 
@@ -37,6 +43,21 @@ mouse = Controller()
 class Point:
     x: int
     y: int
+
+    def __add__(self, b):
+        return Point(self.x + b.x, self.y + b.y)
+    
+    def __sub__(self, b):
+        return self + (-b)
+    
+    def __neg__(self):
+        return Point(-self.x, -self.y)
+    
+    def __mul__(self, b):
+        return Point(self.x * b.x, self.y * b.y)
+    
+    def __truediv__(self, b):
+        return Point(self.x / b.x, self.y / b.y)
 
 @dataclass
 class Rect:
@@ -49,12 +70,23 @@ def on_press(key):
     if args.pickle or args.draw:
         should_exit = True
 
+# TODO: Make these use the screen scale and offset
+def transform_screen_point (x: int, y: int) -> tuple[int, int]:
+    return (math.floor(x * screen_scale), math.floor((y - og_screen_offset_y) * screen_scale + screen_offset_y))
+
 def click (x: int, y: int):
-    mouse.position = (x, y)
+    mouse.position = transform_screen_point(x, y)
     mouse.click(Button.left)
 
 def clickp (pos: Point):
     click(pos.x, pos.y)
+
+def click_and_drag (a: Point, b: Point) -> None:
+    mouse.position = transform_screen_point(a.y, a.x)
+    mouse.press(Button.left)
+    time.sleep(0.08)
+    mouse.position = transform_screen_point(b.y, b.x)
+    mouse.release(Button.left)
 
 def drawrect (img: cv2.Mat, rect: Rect, thickness: int = -1) -> None:
     cv2.rectangle(img, (rect.topleft.x, rect.topleft.y, rect.size.x, rect.size.y), (rect.color[2], rect.color[1], rect.color[0]), thickness)
@@ -177,11 +209,7 @@ def draw_gartic (final_rects: list[Rect]):
 
             clickp(color_to_point[rect.color])
 
-            mouse.position = ((rect.topleft.x + topleft.x, rect.topleft.y + topleft.y))
-            mouse.press(Button.left)
-            time.sleep(0.08)
-            mouse.position = ((rect.topleft.x  + topleft.x + rect.size.x, rect.topleft.y  + topleft.y + rect.size.y))
-            mouse.release(Button.left)
+            click_and_drag(rect.topleft + topleft, rect.topleft + topleft + rect.size)
 
             time.sleep(0.05)
 
@@ -251,9 +279,6 @@ else:
                 best_diff = test_diff
                 best_rect = test_rect
 
-        # if best_rect == None and random.random() < 0.25:
-        #     return (test_batch, test_rect)
-        
         return (best_batch, best_rect)
 
     avg_step_time = 0
@@ -281,19 +306,15 @@ else:
 
             if best_rect != None:
                 best_img = best_batch.copy()
-                scl_tl = Point(best_rect.topleft.x / proc_scale, best_rect.topleft.y / proc_scale)
-                scl_s = Point(best_rect.size.x / proc_scale, best_rect.size.y / proc_scale)
+                scl_tl = best_rect.topleft / Point(proc_scale, proc_scale)
+                scl_s = best_rect.size / Point(proc_scale, proc_scale)
                 scaled_rect = Rect(scl_tl, scl_s, best_rect.color)
                 # drawrect(debug_img, best_rect, 1)
                 best_rects.append(scaled_rect)
                 clickp(color_to_point[scaled_rect.color])
 
                 if args.draw:
-                    mouse.position = ((scaled_rect.topleft.x + topleft.x, scaled_rect.topleft.y + topleft.y))
-                    mouse.press(Button.left)
-                    time.sleep(0.08)
-                    mouse.position = ((scaled_rect.topleft.x  + topleft.x + scaled_rect.size.x, scaled_rect.topleft.y  + topleft.y + scaled_rect.size.y))
-                    mouse.release(Button.left)
+                    click_and_drag(scaled_rect.topleft + topleft, scaled_rect.topleft + topleft + scaled_rect.size)
 
                     time.sleep(0.02)
             
@@ -303,7 +324,7 @@ else:
             
             if select.select([sys.stdin, ], [], [], 0.0)[0]:
                 should_exit = True
-                
+
         listener.stop()
         listener.join()
     
