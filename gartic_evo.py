@@ -1,20 +1,19 @@
-import math
-import random
-import pickle
 import argparse
-import datetime
-import sys
-import select
-from pynput.mouse import Controller, Button
-from pynput.keyboard import Key, Listener
-import time
-import os
 from dataclasses import dataclass
-import cv2
+import datetime
+import math
+import os
+import pickle
+import random
+import select
+import sys
 import time
+import time
+
+import cv2
 import numpy as np
-import threading
-from queue import Queue
+from pynput.keyboard import Listener
+from pynput.mouse import Button, Controller
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--path', type=str, help='The image path', default="img/papy2.jpeg")
@@ -248,26 +247,21 @@ else:
 
     best_img = np.zeros((img_height,img_width,3), np.uint8)
     best_img[::] = (255, 255, 255)
-    # drawrect(best_img, Rect(Point(0, 0), Point(img_width, img_height), most_color))
     best_rects = [ ]
-    # best_rects = [ Rect(Point(0, 0), Point(img_width, img_height), most_color) ]
     debug_img = best_img.copy()
 
-    def process_batch_unthreaded (original_img: cv2.Mat, evo_img: cv2.Mat, colors: list[tuple[int, int, int]]) -> tuple[cv2.Mat, Rect]:
-        best_rect: Rect = None
-        best_batch: cv2.Mat = evo_img.copy()
-        # best_batch: cv2.Mat = None
+    def process_batch_unthreaded (original_img: cv2.Mat, evo_img: cv2.Mat, colors: list[tuple[int, int, int]]) -> tuple[cv2.Mat, None | Rect]:
+        best_rect = None
+        best_batch = evo_img.copy()
         best_diff = imgdiff(original_img, evo_img)
-        # best_diff = 99999999999999999
         h, w = original_img.shape[:2]
         
         for _ in range(args.batch):
             test_batch: cv2.Mat = evo_img.copy()
             test_topleft = Point(random.randint(0,w - 2), random.randint(0,h - 2))
             test_size = Point(random.randint(1, w - test_topleft.x), random.randint(1, h - test_topleft.y))
-            # test_size = Point(1, 1)
-            avg_col = cv2.mean(img[test_topleft.y:(test_topleft.y+test_size.y), test_topleft.x:(test_topleft.x+test_size.x)])
-            # test_color = (avg_col[2], avg_col[1], avg_col[0])
+            roi = img[test_topleft.y:(test_topleft.y+test_size.y), test_topleft.x:(test_topleft.x+test_size.x)]
+            avg_col = cv2.mean(roi)
             test_color = get_closest_color((avg_col[2], avg_col[1], avg_col[0]), colors)
 
             test_rect = Rect(test_topleft, test_size, test_color)
@@ -297,7 +291,7 @@ else:
             avg_step_time = (time.time() - start_time) / (j + 1)
             
             if j == (args.count / 10):
-                print(f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.count))}                               ")
+                print(f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.count))}                              ")
 
             time_left = avg_step_time * (args.count - j)
             print(f"\r{j + 1}/{args.count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}             ", end="")
@@ -336,10 +330,4 @@ else:
     with open("rects.pickle", "wb") as file:
         pickle.dump(best_rects, file)
     
-    # if args.draw:
-    #     print(f"--- calculation time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---")
-    #     draw_time = time.time()
-    #     draw_gartic(best_rects)
-    #     print(f"--- draw time - {datetime.timedelta(seconds=math.floor(time.time() - draw_time))} ---")
-
 print(f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---")
