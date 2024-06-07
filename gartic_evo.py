@@ -8,7 +8,6 @@ import random
 import select
 import sys
 import time
-import time
 
 import cv2
 import numpy as np
