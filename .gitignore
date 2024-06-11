@@ -1,0 +1,6 @@
+venv/
+img/
+usr/
+__pycache__
+*.gar
+*.png
