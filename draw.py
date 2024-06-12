@@ -3,6 +3,7 @@ import pickle
 import time
 import datetime
 import math
+import os
 from playwright.sync_api import sync_playwright
 
 
@@ -11,12 +12,10 @@ from Gartic import Point
 
 
 parser = argparse.ArgumentParser()
-parser.add_argument("input", type=str, help="The .gar file path")
+parser.add_argument("--demo", type=str, help="Set up an infinite time Gartic drawing session to test out drawings")
 
 args = parser.parse_args()
 
-with open(args.input, "rb") as file:
-    img: Gartic.Image = pickle.load(file)
 
 
 playwright = sync_playwright().start()
@@ -25,10 +24,12 @@ browser = playwright.firefox.launch_persistent_context(
     headless=False,
 )
 page = browser.pages[0]
-local = False
-if local:
-    page.goto("file:///home/flynn/Documents/GarticDrawer/Gartic%20Phone%20-%20The%20Telephone%20Game.html")
-else:
+
+img: None | Gartic.Image = None
+filepath = ""
+
+if args.demo:
+    filepath = args.demo
     page.goto("https://garticphone.com/")
     page.get_by_role("button", name="START").click()
     page.wait_for_timeout(500)
@@ -43,32 +44,55 @@ else:
     page.get_by_role("button", name="Yes").click()
     page.wait_for_timeout(4000)
 
-# input("Press enter when round has started ")
+    with open(args.demo, "rb") as file:
+        img = pickle.load(file)
 
-canvas = page.locator("canvas").nth(3)
-bounds = canvas.bounding_box()
+while True:
+    if not args.demo:
+        while img is not None:
+            filepath = input("Enter the path to the input .gar file: ")
+            if filepath == "":
+                print("Exiting...")
+                exit()
+            try:
+                with open(args.demo, "rb") as file:
+                    img = pickle.load(file)
+            except FileNotFoundError:
+                print(f"File '{filepath}' not found.")
 
-size = Point(float(bounds["width"]), float(bounds["height"])) # type: ignore
-img_scale = size.y / img.height
-print(size)
-print("Scaling by", img_scale)
+    if img is None:
+        exit()
 
-start = time.time()
+    canvas = page.locator("canvas").nth(3)
+    bounds = canvas.bounding_box()
 
-length = len(img.shapes)
-for i in range(length):
-    shape = img.shapes[i] * img_scale
-    shape.draw(page)
+    size = Point(float(bounds["width"]), float(bounds["height"])) # type: ignore
+    img_scale = size.y / img.height
+    print(size)
+    print("Scaling by", img_scale)
 
-    print(f"\r{i + 1}/{length}{' ' * 10}", end="")
+    start = time.time()
 
-print()
+    length = len(img.shapes)
+    for i in range(length):
+        shape = img.shapes[i] * img_scale
+        shape.draw(page)
 
-page.screenshot(path=args.input + ".png")
-print("Done!")
-print(
-    f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start))} ---"
-)
+        print(f"\r{i + 1}/{length}{' ' * 10}", end="")
+        if page.get_by_role("button", name="Done!").is_hidden():
+            break
 
-input("Press enter to quit ")
-print()
+    print()
+    Gartic.set_tool(page, Gartic.ERASER)
+
+    page.screenshot(path=os.path.splitext(filepath)[0] + ".png")
+    print("Done!")
+    print(
+        f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start))} ---"
+    )
+
+    if args.demo:
+        input("Press enter to quit ")
+        print()
+        exit()
+

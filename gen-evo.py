@@ -3,6 +3,7 @@ import datetime
 import math
 import pickle
 import time
+import os
 
 import cv2
 from cv2.typing import MatLike
@@ -17,10 +18,11 @@ draw_time = 0
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="The input image path")
 parser.add_argument(
-    "output",
+    "-o",
+    "--output",
     type=str,
     help="Path to export the .gar file to",
-    default="drawing.gar",
+    default="",
 )
 parser.add_argument(
     "-c", "--count", type=int, help="Number of objects to draw", default=250
@@ -30,7 +32,7 @@ parser.add_argument(
     "--batch",
     type=int,
     help="Number of objects to use for each batch",
-    default=500,
+    default=10000,
 )
 parser.add_argument(
     "--height",
@@ -217,7 +219,7 @@ for j in range(args.count):
     time_left = avg_step_time * (args.count - j)
     print(
         f"\r({len(evolved.shapes)}) {j + 1}/{args.count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}"
-        + " " * 50,
+        + " " * 10,
         end="",
     )
 
@@ -234,6 +236,8 @@ print()
 
 cv2.imwrite("evolution.png", best_img)
 
+if args.output == "":
+    args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
 with open(args.output, "wb") as file:
     pickle.dump(evolved, file)
 
