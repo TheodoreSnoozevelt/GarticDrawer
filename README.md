@@ -21,6 +21,8 @@ Set up the Firefox instance with `python ./setup.py`. This will take you to the 
 
 To generate images to draw, run `python ./gen-evo.py <input file path>`. This will output a shape file to `<image name>.gar` by default. Run `python ./gen-evo.py --help` for more information on command-line flags.
 
+To cancel generation midway through, press CTRL-C. This will export what it's generated so far and exit. 
+
 ### Drawing in Gartic
 
 In most cases, drawing will only occur when the browser is focused.

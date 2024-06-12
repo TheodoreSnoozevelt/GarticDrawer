@@ -4,6 +4,8 @@ import math
 import pickle
 import time
 import os
+import signal
+import sys
 
 import cv2
 from cv2.typing import MatLike
@@ -12,8 +14,21 @@ import numpy as np
 import Gartic
 from Gartic import Point
 
-diff_time = 0
-draw_time = 0
+
+def shutdown() -> None:
+    cv2.imwrite("evolution.png", best_img)
+    if args.output == "":
+        args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
+    with open(args.output, "wb") as file:
+        pickle.dump(evolved, file)
+
+    print()
+    print(
+        f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
+    )
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, lambda a, b: shutdown()) # pyright: ignore reportUnusedVariable=false
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="The input image path")
@@ -48,7 +63,6 @@ start_time = time.time()
 
 # From https://stackoverflow.com/questions/56472024/how-to-change-the-opacity-of-boxes-cv2-rectangle
 def draw_shape(img: MatLike, shape: Gartic.ToolShape) -> None:
-    st = time.time()
     overlay = img.copy()
     match shape.tool:
         case Gartic.PEN:
@@ -116,18 +130,12 @@ def draw_shape(img: MatLike, shape: Gartic.ToolShape) -> None:
         0,
         img,
     )
-
-    global draw_time
-    draw_time += time.time() - st
     del overlay
 
 
 def imgdiff(a: MatLike, b: MatLike) -> float:
-    st = time.time()
     absdiff = cv2.absdiff(a, b)
     diff = np.sum(absdiff)
-    global diff_time
-    diff_time += time.time() - st
     return diff  # type: ignore
 
 
@@ -229,20 +237,8 @@ for j in range(args.count):
         best_img = best_batch.copy()
         evolved.add_shape(best_shape)
 
-    if (j + 1) % 100 == 0:
+    if (j + 1) % 25 == 0:
         cv2.imwrite("evolution.png", best_img)
 
 print()
-
-cv2.imwrite("evolution.png", best_img)
-
-if args.output == "":
-    args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
-with open(args.output, "wb") as file:
-    pickle.dump(evolved, file)
-
-print(
-    f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
-)
-print("Diff time:", diff_time)
-print("Draw time:", draw_time)
+shutdown()
