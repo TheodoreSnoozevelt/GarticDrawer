@@ -136,14 +136,24 @@ class ToolShape(Shape):
 
 class Image:
     shapes: list[ToolShape]
-    height: int
+    height: float
+    width: float
 
-    def __init__(self, height: int):
+    def __init__(self, height: float, width: float):
         self.shapes = []
         self.height = height
+        self.width = width
 
     def add_shape(self, shape: ToolShape):
         self.shapes.append(shape)
+
+    def scale_to(self, img_w: float, img_h: float) -> float:
+        scale = min(img_w / self.width, img_h / self.height)
+        self.height *= scale
+        self.width *= scale
+        for i in range(len(self.shapes)):
+            self.shapes[i] = self.shapes[i] * scale
+        return scale
 
 
 def click_point(page: Page, point: Point) -> None:

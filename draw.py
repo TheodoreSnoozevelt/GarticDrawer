@@ -4,19 +4,22 @@ import time
 import datetime
 import math
 import os
+import sys
+import signal
 from playwright.sync_api import sync_playwright
 
 
 import Gartic
 from Gartic import Point
 
-
 parser = argparse.ArgumentParser()
-parser.add_argument("--demo", type=str, help="Set up an infinite time Gartic drawing session to test out drawings")
+parser.add_argument(
+    "--demo",
+    type=str,
+    help="Set up an infinite time Gartic drawing session to test out drawings",
+)
 
 args = parser.parse_args()
-
-
 
 playwright = sync_playwright().start()
 browser = playwright.firefox.launch_persistent_context(
@@ -28,7 +31,8 @@ page = browser.pages[0]
 img: None | Gartic.Image = None
 filepath = ""
 
-if args.demo:
+if args.demo is not None:
+    print("loading image")
     filepath = args.demo
     page.goto("https://garticphone.com/")
     page.get_by_role("button", name="START").click()
@@ -48,14 +52,16 @@ if args.demo:
         img = pickle.load(file)
 
 while True:
-    if not args.demo:
-        while img is not None:
-            filepath = input("(Enter a blank line to quit)\nEnter the path to the input .gar file: ")
+    if args.demo is None:
+        while img is None:
+            filepath = input(
+                "(Enter a blank line to quit)\nEnter the path to the input .gar file: "
+            )
             if filepath == "":
                 print("Exiting...")
                 exit()
             try:
-                with open(args.demo, "rb") as file:
+                with open(filepath, "rb") as file:
                     img = pickle.load(file)
             except FileNotFoundError:
                 print(f"File '{filepath}' not found.")
@@ -66,16 +72,15 @@ while True:
     canvas = page.locator("canvas").nth(3)
     bounds = canvas.bounding_box()
 
-    size = Point(float(bounds["width"]), float(bounds["height"])) # type: ignore
-    img_scale = size.y / img.height
-    print(size)
-    print("Scaling by", img_scale)
+    size = Point(float(bounds["width"]), float(bounds["height"]))  # type: ignore
+    print(f"Canvas size: {size.x}x{size.y}")
+    print(f"Original size: {img.width}x{img.height}")
+    print("Scaling by: ", img.scale_to(size.x, size.y))
 
     start = time.time()
 
     length = len(img.shapes)
-    for i in range(length):
-        shape = img.shapes[i] * img_scale
+    for i, shape in enumerate(img.shapes):
         shape.draw(page)
 
         print(f"\r{i + 1}/{length}{' ' * 10}", end="")
@@ -90,9 +95,9 @@ while True:
     print(
         f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start))} ---"
     )
+    img = None
 
-    if args.demo:
+    if args.demo is not None:
         input("Press enter to quit ")
         print()
         exit()
-

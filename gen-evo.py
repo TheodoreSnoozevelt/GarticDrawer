@@ -28,7 +28,7 @@ def shutdown() -> None:
     )
     sys.exit(0)
 
-signal.signal(signal.SIGINT, lambda a, b: shutdown()) # pyright: ignore reportUnusedVariable=false
+signal.signal(signal.SIGINT, lambda _, b: shutdown())
 
 parser = argparse.ArgumentParser()
 parser.add_argument("input", type=str, help="The input image path")
@@ -170,15 +170,15 @@ img = cv2.resize(
     (math.floor(img_width * img_scale), math.floor(img_height * img_scale)),
     interpolation=cv2.INTER_LANCZOS4,
 )
-img_height, img_width = img.shape[:2]
+img_width, img_height = img.shape[:2]
 
 avg_col = cv2.mean(img)
 avg_col = [int(i) for i in avg_col]
 bg_color = get_closest_color((avg_col[0], avg_col[1], avg_col[2]), Gartic.colors)
 
-best_img = np.zeros((img_height, img_width, 3), np.uint8)
+best_img = np.zeros((img_width, img_height, 3), np.uint8)
 best_img[::] = Gartic.colors[bg_color]
-evolved = Gartic.Image(args.height)
+evolved = Gartic.Image(img_width, img_height)
 evolved.add_shape(
     Gartic.ToolShape(
         bg_color,
