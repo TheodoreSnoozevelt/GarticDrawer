@@ -6,6 +6,7 @@ import time
 import os
 import signal
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
 from cv2.typing import MatLike
@@ -14,8 +15,12 @@ import numpy as np
 import Gartic
 from Gartic import Point
 
+executor = None
 
 def shutdown() -> None:
+    global executor
+    if executor:
+        executor.shutdown(wait=True)
     cv2.imwrite("evolution.png", best_img)
     if args.output == "":
         args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
@@ -55,11 +60,13 @@ parser.add_argument(
     help="Vertical resolution of image to work with. Smaller is faster and takes less memory, larger is more detailed",
     default=200,
 )
+parser.add_argument(
+    "-t", "--threads", type=int, help="Number of threads to use for batch processing", default=4
+)
 
 args = parser.parse_args()
 
 start_time = time.time()
-
 
 # From https://stackoverflow.com/questions/56472024/how-to-change-the-opacity-of-boxes-cv2-rectangle
 def draw_shape(img: MatLike, shape: Gartic.ToolShape) -> None:
@@ -200,7 +207,7 @@ def process_batch(
     best_diff = imgdiff(original_img, evo_img)
     h, w = original_img.shape[:2]
 
-    for _ in range(args.batch):
+    for _ in range(int(args.batch / args.threads)):
         test_batch: MatLike = evo_img.copy()
         test_shape = Gartic.ToolShape.random(w, h)
         draw_shape(test_batch, test_shape)
@@ -212,6 +219,29 @@ def process_batch(
             best_shape = test_shape
 
     return (best_batch, best_shape)
+
+
+def threaded_batch_processing(original_img: MatLike, evo_img: MatLike, num_threads: int):
+    if num_threads == 1:
+        return process_batch(original_img, evo_img)
+
+    global executor
+    executor = ThreadPoolExecutor(max_workers=num_threads)
+
+    futures = [executor.submit(process_batch, original_img, evo_img) for _ in range(num_threads)]
+    best_diff = float('inf')
+    best_batch = evo_img.copy()
+    best_shape = None
+
+    for future in as_completed(futures):
+        batch_result, shape = future.result()
+        batch_diff = imgdiff(original_img, batch_result)
+        if batch_diff < best_diff:
+            best_diff = batch_diff
+            best_batch = batch_result
+            best_shape = shape
+
+    return best_batch, best_shape
 
 
 avg_step_time = 0
@@ -231,7 +261,7 @@ for j in range(args.count):
         end="",
     )
 
-    best_batch, best_shape = process_batch(img, best_img)
+    best_batch, best_shape = threaded_batch_processing(img, best_img, args.threads)
 
     if best_shape is not None:
         best_img = best_batch.copy()
@@ -242,3 +272,4 @@ for j in range(args.count):
 
 print()
 shutdown()
+
