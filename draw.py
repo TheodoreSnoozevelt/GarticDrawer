@@ -50,7 +50,7 @@ if args.demo:
 while True:
     if not args.demo:
         while img is not None:
-            filepath = input("Enter the path to the input .gar file: ")
+            filepath = input("(Enter a blank line to quit)\nEnter the path to the input .gar file: ")
             if filepath == "":
                 print("Exiting...")
                 exit()
