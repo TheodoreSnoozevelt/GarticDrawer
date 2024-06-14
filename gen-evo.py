@@ -17,6 +17,7 @@ from Gartic import Point
 
 executor = None
 
+
 def shutdown() -> None:
     global executor
     if executor:
@@ -29,6 +30,7 @@ def shutdown() -> None:
         f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
     )
     sys.exit(0)
+
 
 signal.signal(signal.SIGINT, lambda _, b: shutdown())
 
@@ -58,7 +60,11 @@ parser.add_argument(
     default=200,
 )
 parser.add_argument(
-    "-t", "--threads", type=int, help="Number of threads to use for batch processing", default=4
+    "-t",
+    "--threads",
+    type=int,
+    help="Number of threads to use for batch processing",
+    default=4,
 )
 
 args = parser.parse_args()
@@ -66,6 +72,7 @@ if args.output == "":
     args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
 
 start_time = time.time()
+
 
 # From https://stackoverflow.com/questions/56472024/how-to-change-the-opacity-of-boxes-cv2-rectangle
 def draw_shape(img: MatLike, shape: Gartic.ToolShape) -> None:
@@ -176,15 +183,16 @@ img = cv2.resize(
     (math.floor(img_width * img_scale), math.floor(img_height * img_scale)),
     interpolation=cv2.INTER_LANCZOS4,
 )
-img_width, img_height = img.shape[:2]
+img_height, img_width = img.shape[:2]
 
 avg_col = cv2.mean(img)
 avg_col = [int(i) for i in avg_col]
 bg_color = get_closest_color((avg_col[0], avg_col[1], avg_col[2]), Gartic.colors)
 
-best_img = np.zeros((img_width, img_height, 3), np.uint8)
+best_img = np.zeros((img_height, img_width, 3), np.uint8)
 best_img[::] = Gartic.colors[bg_color]
 evolved = Gartic.Image(img_width, img_height)
+
 evolved.add_shape(
     Gartic.ToolShape(
         bg_color,
@@ -220,15 +228,20 @@ def process_batch(
     return (best_batch, best_shape)
 
 
-def threaded_batch_processing(original_img: MatLike, evo_img: MatLike, num_threads: int):
+def threaded_batch_processing(
+    original_img: MatLike, evo_img: MatLike, num_threads: int
+):
     if num_threads == 1:
         return process_batch(original_img, evo_img)
 
     global executor
     executor = ThreadPoolExecutor(max_workers=num_threads)
 
-    futures = [executor.submit(process_batch, original_img, evo_img) for _ in range(num_threads)]
-    best_diff = float('inf')
+    futures = [
+        executor.submit(process_batch, original_img, evo_img)
+        for _ in range(num_threads)
+    ]
+    best_diff = float("inf")
     best_batch = evo_img.copy()
     best_shape = None
 
@@ -273,4 +286,3 @@ for j in range(args.count):
 
 print()
 shutdown()
-

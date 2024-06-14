@@ -139,7 +139,7 @@ class Image:
     height: float
     width: float
 
-    def __init__(self, height: float, width: float):
+    def __init__(self, width: float, height: float):
         self.shapes = []
         self.height = height
         self.width = width
