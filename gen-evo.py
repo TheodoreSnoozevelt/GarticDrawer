@@ -21,7 +21,7 @@ def shutdown() -> None:
     global executor
     if executor:
         executor.shutdown(wait=True)
-    cv2.imwrite("evolution.png", best_img)
+    cv2.imwrite(args.output + ".png", best_img)
     with open(args.output, "wb") as file:
         pickle.dump(evolved, file)
     print()
@@ -267,7 +267,7 @@ for j in range(args.count):
         evolved.add_shape(best_shape)
 
     if (j + 1) % 25 == 0:
-        cv2.imwrite("evolution.png", best_img)
+        cv2.imwrite(args.output + ".png", best_img)
         with open(args.output, "wb") as file:
             pickle.dump(evolved, file)
 
