@@ -22,11 +22,8 @@ def shutdown() -> None:
     if executor:
         executor.shutdown(wait=True)
     cv2.imwrite("evolution.png", best_img)
-    if args.output == "":
-        args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
     with open(args.output, "wb") as file:
         pickle.dump(evolved, file)
-
     print()
     print(
         f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
@@ -65,6 +62,8 @@ parser.add_argument(
 )
 
 args = parser.parse_args()
+if args.output == "":
+    args.output = os.path.splitext(os.path.basename(args.input))[0] + ".gar"
 
 start_time = time.time()
 
@@ -269,6 +268,8 @@ for j in range(args.count):
 
     if (j + 1) % 25 == 0:
         cv2.imwrite("evolution.png", best_img)
+        with open(args.output, "wb") as file:
+            pickle.dump(evolved, file)
 
 print()
 shutdown()
