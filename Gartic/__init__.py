@@ -1,5 +1,5 @@
 import random
-from playwright.sync_api import Page
+from playwright.sync_api import Locator, Page
 from dataclasses import dataclass
 
 colors = [
@@ -24,6 +24,10 @@ colors = [
 ]
 thicknesses = [2, 6, 10, 14, 18]
 opacities = [i / 10 for i in range(1, 11)]
+
+def optionalClick(loc: Locator, **kwargs) -> None:
+    # if loc.is_visible():
+    loc.click(**kwargs, force=True)
 
 
 def clamp(i: int, minimum: int, maximum: int):
@@ -157,7 +161,7 @@ class Image:
 
 
 def click_point(page: Page, point: Point) -> None:
-    page.locator("canvas").nth(3).click(position={"x": point.x, "y": point.y})
+    optionalClick(page.locator("canvas").nth(3), position={"x": point.x, "y": point.y})
 
 
 def click_drag(page: Page, pointA: Point, pointB) -> None:
@@ -176,13 +180,13 @@ def click_drag(page: Page, pointA: Point, pointB) -> None:
 def set_color(page: Page, i: int) -> None:
     elem = page.locator(f".colorslist").first.locator("div").all()[i]
     if "sel" not in (elem.get_attribute("class") or ""):
-        elem.click()
+        optionalClick(elem)
 
 
 def set_thickness(page: Page, i: int) -> None:
     elem = page.locator(".thickness").all()[i].first
     if "sel" not in (elem.get_attribute("class") or ""):
-        elem.click()
+        optionalClick(elem)
 
 
 def set_opacity(page: Page, i: int) -> None:
@@ -206,7 +210,7 @@ tools = [PEN, RECT_HOLLOW, ELLIPSE_HOLLOW, RECT, ELLIPSE]
 def set_tool(page: Page, tool: str) -> None:
     elem = page.locator("." + tool)
     if "sel" not in (elem.get_attribute("class") or ""):
-        elem.click()
+        optionalClick(elem)
 
 
 def set_shape(page: Page, shape: Shape) -> None:

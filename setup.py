@@ -20,7 +20,8 @@ if args.manual:
     exit()
 
 page.goto("https://addons.mozilla.org/en-US/firefox/addon/ublock-origin/")
-page.get_by_role("link", name="Add to Firefox").click()
+print("Please install this extension.")
+# page.get_by_role("link", name="Add to Firefox").click()
 
 print("Accept the usage conditions and press enter when done to close the program.")
 input()
