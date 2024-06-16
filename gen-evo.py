@@ -46,11 +46,11 @@ parser.add_argument(
     default="",
 )
 parser.add_argument(
-    "-c", "--count", type=int, help="Number of objects to draw", default=250
+    "-c", "--batch-count", type=int, help="Number of objects to draw", default=250
 )
 parser.add_argument(
     "-b",
-    "--batch",
+    "--batch-size",
     type=int,
     help="Number of objects to use for each batch",
     default=10000,
@@ -228,7 +228,7 @@ def process_batch(
     best_diff = imgdiff(original_img, evo_img)
     h, w = original_img.shape[:2]
 
-    for _ in range(int(args.batch / args.threads)):
+    for _ in range(int(args.batch_size / args.threads)):
         test_batch: MatLike = evo_img.copy()
         test_shape = Gartic.ToolShape.random(w, h)
         draw_shape(test_batch, test_shape)
@@ -301,18 +301,18 @@ def threaded_batch_processing(
 
 
 avg_step_time = 0
-for j in range(args.count):
+for j in range(args.batch_count):
     avg_step_time = (time.time() - start_time) / (j + 1)
 
-    if j == (args.count / 10):
+    if j == (args.batch_count / 10):
         print(
-            f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.count))}"
+            f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.batch_count))}"
             + " " * 50
         )
 
-    time_left = avg_step_time * (args.count - j)
+    time_left = avg_step_time * (args.batch_count - j)
     print(
-        f"\r({len(evolved.shapes)}) {j + 1}/{args.count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}"
+        f"\r({len(evolved.shapes)}) {j + 1}/{args.batch_count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}"
         + " " * 10,
         end="",
     )
