@@ -19,11 +19,15 @@ from Gartic import Point
 
 executor = None
 
+is_force_shutdown = False
 
 def shutdown() -> None:
-    global executor
-    if executor:
-        executor.shutdown(wait=True)
+    global is_force_shutdown
+    if not is_force_shutdown:
+        is_force_shutdown = True
+        global executor
+        if executor:
+            executor.shutdown(wait=True)
     cv2.imwrite(args.output + ".png", best_img)
     with open(args.output, "wb") as file:
         pickle.dump(evolved, file)
@@ -31,6 +35,7 @@ def shutdown() -> None:
     print(
         f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
     )
+    print("Difference score (lower is better):", round(imgdiff(img, best_img) / 100000, 2))
     sys.exit(0)
 
 
@@ -246,6 +251,9 @@ def jitter(img: MatLike, last_batch: MatLike, shape: Gartic.ToolShape):
     draw_shape(best_img, shape)
     best_diff = imgdiff(last_batch, img)
     best_shape = shape
+
+    if args.jitter_count == 0:
+        return best_img, shape
 
     h, w = img.shape[:2]
     min_a = Point(max(shape.a.x - args.jitter_amount, 0), max(shape.a.y - args.jitter_amount, 0))
