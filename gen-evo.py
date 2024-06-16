@@ -2,10 +2,12 @@ import argparse
 import datetime
 import math
 import pickle
+import random
 import time
 import os
 import signal
 import sys
+from copy import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
@@ -65,6 +67,18 @@ parser.add_argument(
     type=int,
     help="Number of threads to use for batch processing",
     default=4,
+)
+parser.add_argument(
+    "--jitter-amount",
+    type=int,
+    help="How much to jitter the best shape",
+    default=10,
+)
+parser.add_argument(
+    "--jitter-count",
+    type=int,
+    help="How many times to jitter the best shape",
+    default=100,
 )
 
 args = parser.parse_args()
@@ -227,6 +241,34 @@ def process_batch(
 
     return (best_batch, best_shape)
 
+def jitter(img: MatLike, last_batch: MatLike, shape: Gartic.ToolShape):
+    best_img = last_batch.copy()
+    draw_shape(best_img, shape)
+    best_diff = imgdiff(last_batch, img)
+    best_shape = shape
+
+    h, w = img.shape[:2]
+    min_a = Point(max(shape.a.x - args.jitter_amount, 0), max(shape.a.y - args.jitter_amount, 0))
+    max_a = Point(min(shape.a.x + args.jitter_amount, w), max(shape.a.y + args.jitter_amount, h))
+
+    min_b = Point(max(shape.b.x - args.jitter_amount, 0), max(shape.b.y - args.jitter_amount, 0))
+    max_b = Point(min(shape.b.x + args.jitter_amount, w), max(shape.b.y + args.jitter_amount, h))
+
+    for _ in range(args.jitter_count):
+        test_shape = copy(shape)
+        test_shape.a = Point(random.randrange(int(min_a.x), int(max_a.x)), random.randrange(int(min_a.y), int(max_a.y)))
+        test_shape.b = Point(random.randrange(int(min_b.x), int(max_b.x)), random.randrange(int(min_b.y), int(max_b.y)))
+        test_shape.opacityIndex = random.randrange(0, len(Gartic.opacities))
+        test_img = last_batch.copy()
+        draw_shape(test_img, test_shape)
+        test_diff = imgdiff(test_img, img)
+        if test_diff < best_diff:
+            best_diff = test_diff
+            best_img = test_img
+            best_shape = test_shape
+
+    return best_img, best_shape
+
 
 def threaded_batch_processing(
     original_img: MatLike, evo_img: MatLike, num_threads: int
@@ -256,6 +298,8 @@ def threaded_batch_processing(
     return best_batch, best_shape
 
 
+
+
 avg_step_time = 0
 for j in range(args.count):
     avg_step_time = (time.time() - start_time) / (j + 1)
@@ -276,7 +320,8 @@ for j in range(args.count):
     best_batch, best_shape = threaded_batch_processing(img, best_img, args.threads)
 
     if best_shape is not None:
-        best_img = best_batch.copy()
+        best_batch, best_shape = jitter(img, best_img, best_shape)
+        best_img = best_batch
         evolved.add_shape(best_shape)
 
     if (j + 1) % 25 == 0:
