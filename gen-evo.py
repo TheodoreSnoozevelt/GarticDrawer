@@ -19,12 +19,13 @@ from Gartic import Point
 
 executor = None
 
-is_force_shutdown = False
+is_shutdown = False
+kill_threads = False
 
 def shutdown() -> None:
-    global is_force_shutdown
-    if not is_force_shutdown:
-        is_force_shutdown = True
+    global is_shutdown
+    if not is_shutdown:
+        is_shutdown = True
         global executor
         if executor:
             executor.shutdown(wait=True)
@@ -83,7 +84,7 @@ parser.add_argument(
     "--jitter-count",
     type=int,
     help="How many times to jitter the best shape",
-    default=100,
+    default=0,
 )
 
 args = parser.parse_args()
@@ -244,6 +245,10 @@ def process_batch(
             best_diff = test_diff
             best_shape = test_shape
 
+        global is_shutdown
+        if is_shutdown:
+            return (best_batch, best_shape)
+
     return (best_batch, best_shape)
 
 def jitter(img: MatLike, last_batch: MatLike, shape: Gartic.ToolShape):
@@ -266,7 +271,6 @@ def jitter(img: MatLike, last_batch: MatLike, shape: Gartic.ToolShape):
         test_shape = copy(shape)
         test_shape.a = Point(random.randrange(int(min_a.x), int(max_a.x)), random.randrange(int(min_a.y), int(max_a.y)))
         test_shape.b = Point(random.randrange(int(min_b.x), int(max_b.x)), random.randrange(int(min_b.y), int(max_b.y)))
-        test_shape.opacityIndex = random.randrange(0, len(Gartic.opacities))
         test_img = last_batch.copy()
         draw_shape(test_img, test_shape)
         test_diff = imgdiff(test_img, img)
