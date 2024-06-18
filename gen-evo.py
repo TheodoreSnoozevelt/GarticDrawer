@@ -284,7 +284,8 @@ while len(evolved.shapes) < args.batch_count:
         255 * (diff_img - np.min(diff_img)) / (np.max(diff_img) - np.min(diff_img))
     ).astype(np.uint8)
     diff_img = diff_img.astype(np.uint8)
-    _, binary = cv2.threshold(diff_img, 20, 255, cv2.THRESH_BINARY)
+    _, binary = cv2.threshold(diff_img, 80, 255, cv2.THRESH_BINARY)
+    cv2.imwrite("bin.png", binary)
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     roi_start = Point(0, 0)
@@ -293,8 +294,9 @@ while len(evolved.shapes) < args.batch_count:
     if contours:
         largest_contour = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(largest_contour)
-        roi_start = Point(x, y)
-        roi_end = Point(x + w, y + h)
+        if w * h > img_width * img_height * 0.01:
+            roi_start = Point(x, y)
+            roi_end = Point(x + w, y + h)
 
     best_img, best_shape = threaded_batch_processing(img, best_img, roi_start, roi_end)
 
