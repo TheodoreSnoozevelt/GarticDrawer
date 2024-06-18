@@ -279,13 +279,13 @@ while len(evolved.shapes) < args.batch_count:
         end="",
     )
 
-    diff_img = cv2.absdiff(img, best_img)
+    diff_img = cv2.absdiff(img, best_img).mean(axis=2)
     diff_img = (
         255 * (diff_img - np.min(diff_img)) / (np.max(diff_img) - np.min(diff_img))
     ).astype(np.uint8)
     diff_img = diff_img.astype(np.uint8)
-    _, binary = cv2.threshold(diff_img, 127, 255, cv2.THRESH_BINARY)
-    contours, _ = cv2.findContours(binary)
+    _, binary = cv2.threshold(diff_img, 20, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     roi_start = Point(0, 0)
     roi_end = Point(img_width, img_height)
