@@ -2,12 +2,9 @@ import argparse
 import datetime
 import math
 import pickle
-import random
 import time
 import os
 import signal
-import sys
-from copy import copy
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import cv2
@@ -20,24 +17,11 @@ from Gartic import Point
 executor = None
 
 is_shutdown = False
-kill_threads = False
+
 
 def shutdown() -> None:
     global is_shutdown
-    if not is_shutdown:
-        is_shutdown = True
-        global executor
-        if executor:
-            executor.shutdown(wait=True)
-    cv2.imwrite(args.output + ".png", best_img)
-    with open(args.output, "wb") as file:
-        pickle.dump(evolved, file)
-    print()
-    print(
-        f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
-    )
-    print("Difference score (lower is better):", round(imgdiff(img, best_img) / 100000, 2))
-    sys.exit(0)
+    is_shutdown = True
 
 
 signal.signal(signal.SIGINT, lambda _, b: shutdown())
@@ -73,18 +57,6 @@ parser.add_argument(
     type=int,
     help="Number of threads to use for batch processing",
     default=4,
-)
-parser.add_argument(
-    "--jitter-amount",
-    type=int,
-    help="How much to jitter the best shape",
-    default=10,
-)
-parser.add_argument(
-    "--jitter-count",
-    type=int,
-    help="How many times to jitter the best shape",
-    default=0,
 )
 
 args = parser.parse_args()
@@ -226,8 +198,7 @@ evolved.add_shape(
 
 
 def process_batch(
-    original_img: MatLike,
-    evo_img: MatLike,
+    original_img: MatLike, evo_img: MatLike, roi_start: Point, roi_end: Point
 ) -> tuple[MatLike, None | Gartic.ToolShape]:
     best_shape: None | Gartic.Shape = None
     best_batch = evo_img.copy()
@@ -236,7 +207,10 @@ def process_batch(
 
     for _ in range(int(args.batch_size / args.threads)):
         test_batch: MatLike = evo_img.copy()
-        test_shape = Gartic.ToolShape.random(w, h)
+        roi_size = roi_end - roi_start
+        test_shape = Gartic.ToolShape.random(roi_size.x, roi_size.y)
+        test_shape.a = test_shape.a + roi_start
+        test_shape.b = test_shape.b + roi_start
         draw_shape(test_batch, test_shape)
 
         test_diff = imgdiff(original_img, test_batch)
@@ -251,49 +225,22 @@ def process_batch(
 
     return (best_batch, best_shape)
 
-def jitter(img: MatLike, last_batch: MatLike, shape: Gartic.ToolShape):
-    best_img = last_batch.copy()
-    draw_shape(best_img, shape)
-    best_diff = imgdiff(last_batch, img)
-    best_shape = shape
-
-    if args.jitter_count == 0:
-        return best_img, shape
-
-    h, w = img.shape[:2]
-    min_a = Point(max(shape.a.x - args.jitter_amount, 0), max(shape.a.y - args.jitter_amount, 0))
-    max_a = Point(min(shape.a.x + args.jitter_amount, w), max(shape.a.y + args.jitter_amount, h))
-
-    min_b = Point(max(shape.b.x - args.jitter_amount, 0), max(shape.b.y - args.jitter_amount, 0))
-    max_b = Point(min(shape.b.x + args.jitter_amount, w), max(shape.b.y + args.jitter_amount, h))
-
-    for _ in range(args.jitter_count):
-        test_shape = copy(shape)
-        test_shape.a = Point(random.randrange(int(min_a.x), int(max_a.x)), random.randrange(int(min_a.y), int(max_a.y)))
-        test_shape.b = Point(random.randrange(int(min_b.x), int(max_b.x)), random.randrange(int(min_b.y), int(max_b.y)))
-        test_img = last_batch.copy()
-        draw_shape(test_img, test_shape)
-        test_diff = imgdiff(test_img, img)
-        if test_diff < best_diff:
-            best_diff = test_diff
-            best_img = test_img
-            best_shape = test_shape
-
-    return best_img, best_shape
-
 
 def threaded_batch_processing(
-    original_img: MatLike, evo_img: MatLike, num_threads: int
+    original_img: MatLike,
+    evo_img: MatLike,
+    roi_start: Point,
+    roi_end: Point,
 ):
-    if num_threads == 1:
-        return process_batch(original_img, evo_img)
+    if args.threads == 1:
+        return process_batch(original_img, evo_img, roi_start, roi_end)
 
     global executor
-    executor = ThreadPoolExecutor(max_workers=num_threads)
+    executor = ThreadPoolExecutor(max_workers=args.threads)
 
     futures = [
-        executor.submit(process_batch, original_img, evo_img)
-        for _ in range(num_threads)
+        executor.submit(process_batch, original_img, evo_img, roi_start, roi_end)
+        for _ in range(args.threads)
     ]
     best_diff = float("inf")
     best_batch = evo_img.copy()
@@ -310,36 +257,65 @@ def threaded_batch_processing(
     return best_batch, best_shape
 
 
+last_write_out = 0
+has_printed_total = False
+avg_round_time = 0
+while len(evolved.shapes) < args.batch_count:
+    avg_round_time = (time.time() - start_time) / len(evolved.shapes)
 
-
-avg_step_time = 0
-for j in range(args.batch_count):
-    avg_step_time = (time.time() - start_time) / (j + 1)
-
-    if j == (args.batch_count / 10):
+    if len(evolved.shapes) > (args.batch_count / 10) and not has_printed_total:
         print(
-            f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(avg_step_time * args.batch_count))}"
+            f"\rEstimated total time - {datetime.timedelta(seconds=math.floor(args.batch_count * avg_round_time))}"
             + " " * 50
         )
+        has_printed_total = True
 
-    time_left = avg_step_time * (args.batch_count - j)
+    time_left = datetime.timedelta(
+        seconds=math.floor(avg_round_time * (args.batch_count - len(evolved.shapes)))
+    )
     print(
-        f"\r({len(evolved.shapes)}) {j + 1}/{args.batch_count} Estimated time left - {datetime.timedelta(seconds=math.floor(time_left))}"
+        f"\r{len(evolved.shapes)}/{args.batch_count} Estimated time left - {time_left}"
         + " " * 10,
         end="",
     )
 
-    best_batch, best_shape = threaded_batch_processing(img, best_img, args.threads)
+    diff_img = cv2.absdiff(img, best_img)
+    diff_img = (
+        255 * (diff_img - np.min(diff_img)) / (np.max(diff_img) - np.min(diff_img))
+    ).astype(np.uint8)
+    diff_img = diff_img.astype(np.uint8)
+    _, binary = cv2.threshold(diff_img, 127, 255, cv2.THRESH_BINARY)
+    contours, _ = cv2.findContours(binary)
+
+    roi_start = Point(0, 0)
+    roi_end = Point(img_width, img_height)
+
+    if contours:
+        largest_contour = max(contours, key=cv2.contourArea)
+        x, y, w, h = cv2.boundingRect(largest_contour)
+        roi_start = Point(x, y)
+        roi_end = Point(x + w, y + h)
+
+    best_img, best_shape = threaded_batch_processing(img, best_img, roi_start, roi_end)
 
     if best_shape is not None:
-        best_batch, best_shape = jitter(img, best_img, best_shape)
-        best_img = best_batch
         evolved.add_shape(best_shape)
 
-    if (j + 1) % 25 == 0:
+    if is_shutdown:
+        break
+
+    if len(evolved.shapes) > last_write_out + 25:
+        last_write_out = len(evolved.shapes)
         cv2.imwrite(args.output + ".png", best_img)
         with open(args.output, "wb") as file:
             pickle.dump(evolved, file)
 
 print()
-shutdown()
+cv2.imwrite(args.output + ".png", best_img)
+with open(args.output, "wb") as file:
+    pickle.dump(evolved, file)
+print()
+print(
+    f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
+)
+print("Difference score (lower is better):", round(imgdiff(img, best_img) / 100000, 2))
