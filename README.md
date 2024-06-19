@@ -37,3 +37,13 @@ You must have [gifski](https://gif.ski/) installed and added to your PATH.
 
 Run `python ./make-gif.py <path to .gar>` to create a GIF. \
 Run `python ./make-gif.py -h` for information on the available flags.
+
+## Example Drawings
+
+Examples were generated with a `batch-count` of 750 and a `batch-size` of 450,000. All other settings were default. 
+
+![Dusa from Hades](https://github.com/FlynnD273/GarticDrawer/blob/main/Examples/dusa.png)
+![Dusa from Hades](https://github.com/FlynnD273/GarticDrawer/blob/main/Examples/dusa.gif)
+
+![Dusa from Hades](https://github.com/FlynnD273/GarticDrawer/blob/main/Examples/kirby.png)
+![Dusa from Hades](https://github.com/FlynnD273/GarticDrawer/blob/main/Examples/darth2.png)
