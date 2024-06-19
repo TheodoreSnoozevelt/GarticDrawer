@@ -3,5 +3,6 @@ venv/
 img/
 usr/
 __pycache__
-*.gar
-*.png
+/*.gar
+/*.png
+/*.gif
