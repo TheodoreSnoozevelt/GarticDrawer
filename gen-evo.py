@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import cv2
 from cv2.typing import MatLike
 import numpy as np
+from OpencvDrawing import draw_shape
 
 import Gartic
 from Gartic import Point
@@ -65,82 +66,11 @@ if args.output == "":
 
 start_time = time.time()
 
-
-# From https://stackoverflow.com/questions/56472024/how-to-change-the-opacity-of-boxes-cv2-rectangle
-def draw_shape(img: MatLike, shape: Gartic.ToolShape) -> None:
-    overlay = img.copy()
-    match shape.tool:
-        case Gartic.PEN:
-            cv2.line(
-                overlay,
-                (int(shape.a.x), int(shape.a.y)),
-                (int(shape.b.x), int(shape.b.y)),
-                Gartic.colors[shape.colorIndex],
-                max(
-                    int(Gartic.thicknesses[shape.thicknessIndex] * args.height / 400), 1
-                ),
-                lineType=cv2.LINE_AA,
-            )
-
-        case Gartic.ELLIPSE_HOLLOW | Gartic.ELLIPSE:
-            centerx = int((shape.a.x + shape.b.x) / 2)
-            centery = int((shape.a.y + shape.b.y) / 2)
-            center_coordinates = (centerx, centery)
-            sizex = int(abs(shape.a.x - shape.b.x) / 2)
-            sizey = int(abs(shape.a.y - shape.b.y) / 2)
-            axes_lengths = (sizex, sizey)
-            color = Gartic.colors[shape.colorIndex]
-
-            if shape.tool == Gartic.ELLIPSE_HOLLOW:
-                thickness = max(
-                    int(Gartic.thicknesses[shape.thicknessIndex] * args.height / 400), 1
-                )
-            else:
-                thickness = -1
-
-            cv2.ellipse(
-                overlay,
-                center_coordinates,
-                axes_lengths,
-                0,
-                0,
-                360,
-                color,
-                thickness,
-                lineType=cv2.LINE_AA,
-            )
-
-        case Gartic.RECT_HOLLOW | Gartic.RECT:
-            if shape.tool == Gartic.RECT_HOLLOW:
-                thickness = max(
-                    int(Gartic.thicknesses[shape.thicknessIndex] * args.height / 400), 1
-                )
-            else:
-                thickness = -1
-
-            cv2.rectangle(
-                overlay,
-                (int(shape.a.x), int(shape.a.y)),
-                (int(shape.b.x), int(shape.b.y)),
-                Gartic.colors[shape.colorIndex],
-                thickness,
-                lineType=cv2.LINE_AA,
-            )
-
-    cv2.addWeighted(
-        overlay,
-        Gartic.opacities[shape.opacityIndex],
-        img,
-        1 - Gartic.opacities[shape.opacityIndex],
-        0,
-        img,
-    )
-    del overlay
-
-
 def imgdiff(a: MatLike, b: MatLike) -> float:
     absdiff = cv2.absdiff(a, b)
     diff = np.sum(absdiff)
+    h, w = a.shape[:2]
+    diff /= w * h
     return diff  # type: ignore
 
 
@@ -211,7 +141,7 @@ def process_batch(
         test_shape = Gartic.ToolShape.random(roi_size.x, roi_size.y)
         test_shape.a = test_shape.a + roi_start
         test_shape.b = test_shape.b + roi_start
-        draw_shape(test_batch, test_shape)
+        draw_shape(test_batch, test_shape, args.height / 400)
 
         test_diff = imgdiff(original_img, test_batch)
         if test_diff < best_diff:
@@ -274,7 +204,7 @@ while len(evolved.shapes) < args.batch_count:
         seconds=math.floor(avg_round_time * (args.batch_count - len(evolved.shapes)))
     )
     print(
-        f"\r{len(evolved.shapes)}/{args.batch_count} Estimated time left - {time_left}"
+            f"\rDifference score: {round(imgdiff(img, best_img), 2)} | {len(evolved.shapes)}/{args.batch_count} Estimated time left - {time_left}"
         + " " * 10,
         end="",
     )
@@ -285,7 +215,6 @@ while len(evolved.shapes) < args.batch_count:
     ).astype(np.uint8)
     diff_img = diff_img.astype(np.uint8)
     _, binary = cv2.threshold(diff_img, 80, 255, cv2.THRESH_BINARY)
-    cv2.imwrite("bin.png", binary)
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
     roi_start = Point(0, 0)
@@ -320,4 +249,4 @@ print()
 print(
     f"--- total time - {datetime.timedelta(seconds=math.floor(time.time() - start_time))} ---"
 )
-print("Difference score (lower is better):", round(imgdiff(img, best_img) / 100000, 2))
+print("Difference score (lower is better):", round(imgdiff(img, best_img), 2))

@@ -30,3 +30,10 @@ In most cases, drawing will only occur when the browser is focused.
 Run `python ./draw.py --demo <input file path>` to start a single-player instance of Gartic Phone and draw the image. Run `python ./draw.py` to run it in interactive mode (if you wanted to use this in an actual round, for example)
 
 In interactive mode, enter the path to the .gar file to start drawing. Only do this once a drawing round has started. Currently there is no way to stop the drawing after it's started.
+
+### Creating a GIF
+
+You must have [gifski](https://gif.ski/) installed and added to your PATH.
+
+Run `python ./make-gif.py <path to .gar>` to create a GIF. \
+Run `python ./make-gif.py -h` for information on the available flags.
